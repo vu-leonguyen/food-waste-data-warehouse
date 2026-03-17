@@ -1,0 +1,255 @@
+﻿
+
+--Câu 1: Tính tổng lượng rác thải thực phẩm theo từng quốc gia
+SELECT 
+  Except([Dim Country].[Country Name].Members, {[Dim Country].[Country Name].[All]}) ON ROWS,
+  [Measures].[Total Waste Tons] ON COLUMNS
+FROM [Food Waste DW];
+
+--Câu 2: Liệt kê tổng thiệt hại kinh tế do rác thải theo khu vực
+SELECT 
+  Except([Dim Region].[Region Name].Members, {[Dim Region].[Region Name].[All]}) ON ROWS,
+  [Measures].[Food Economic Loss Million USD] ON COLUMNS
+FROM [Food Waste DW];
+--Câu 3: Liệt kê 10 quốc gia thiệt hại kinh tế lớn nhất do rác thải thực phẩm
+
+SELECT
+  TOPCOUNT(
+    EXCEPT(
+      [Dim Country].[Country Name].Members,
+      { [Dim Country].[Country Name].[All] } 
+    ),
+    10,
+    [Measures].[Food Economic Loss Million USD]
+  ) ON ROWS,
+  [Measures].[Food Economic Loss Million USD] ON COLUMNS
+FROM [Food Waste DW];
+
+--Câu 4:. Liệt kê 5 loại thực phẩm gây nhiều rác thải trên toàn cầu 
+SELECT
+  TOPCOUNT(
+    DISTINCT(
+      [Dim Food Type].[Food Type Name].[Food Type Name].Members
+    ),
+    5,
+    [Measures].[Total Waste Tons]
+  ) ON ROWS,
+  [Measures].[Total Waste Tons] ON COLUMNS
+FROM [Food Waste DW];
+
+
+--Câu 5: Liệt kê top 5 quốc gia cải thiện rác thải nhiều nhất 
+WITH 
+MEMBER [Measures].[Improvement] AS
+    ([Dim Time].[Year].&[2018], [Measures].[Total Waste Tons])
+    - ([Dim Time].[Year].&[2024], [Measures].[Total Waste Tons])
+SELECT 
+    TOPCOUNT(
+        [Dim Country].[Country Name].Members,
+        5,
+        [Measures].[Improvement]
+    ) ON ROWS,
+    [Measures].[Improvement] ON COLUMNS
+FROM [Food Waste DW];
+
+--Câu 6: Tỷ lệ rác thải hộ gia đình (%) trung bình của các khu vực
+
+WITH 
+MEMBER [Measures].[Household Waste Percent Calc] AS
+    IIF(
+        CoalesceEmpty([Measures].[Total Waste Tons], 0) = 0,
+        NULL,
+        ([Measures].[Total Household Waste Tons] / [Measures].[Total Waste Tons]) * 100
+    )
+SELECT 
+    [Dim Region].[Region Name].Children ON ROWS,
+    [Measures].[Household Waste Percent Calc] ON COLUMNS
+FROM [Food Waste DW];
+
+--Câu 7: Tìm năm và quốc gia có mức rác thải trên đầu người cao hơn trung bình khu vực nhiều nhất
+WITH 
+SET [Years] AS DESCENDANTS([Dim Time].[Year].Members, , LEAVES)
+SET [Countries] AS DESCENDANTS([Dim Country].[Country Name].Members, , LEAVES)
+
+MEMBER [Measures].[CountryVal] AS
+  ([Measures].[Avg Waste per Capita Kg],
+   [Dim Time].[Year].CurrentMember,
+   [Dim Country].[Country Name].CurrentMember)
+
+SELECT
+  TOPCOUNT(
+    NONEMPTYCROSSJOIN([Years], [Countries]),
+    1,
+    [Measures].[CountryVal]
+  ) ON ROWS,
+  {
+    [Measures].[CountryVal]
+  } ON COLUMNS
+FROM [Food Waste DW]
+
+--10 Thống kê thiệt hại kinh tế trung bình theo từng năm
+
+WITH 
+MEMBER [Measures].[AvgEconomicLossPerCountry] AS
+    AVG(
+        [Dim Country].[Country Name].[Country Name].Members,
+        [Measures].[Food Economic Loss Million USD]
+    )
+
+SELECT 
+    ([Dim Time].[Year].[Year].Members - {[Dim Time].[Year].[All]}) ON ROWS,
+    [Measures].[AvgEconomicLossPerCountry] ON COLUMNS
+FROM [Food Waste DW];
+
+--Câu 8: Liệt kê tổng rác thải thực phẩm của từng năm trên toàn thế giới
+SELECT
+  [Measures].[Total Waste Tons] ON COLUMNS,
+  ([Dim Time].[Year].[Year].Members - {[Dim Time].[Year].[All]}) ON ROWS
+FROM [Food Waste DW];
+
+--Câu 9: Tính tổng lượng rác thải và quốc gia có rác thải nhiều nhất theo nhóm thu nhập
+WITH
+
+SET [IncomeGroups] AS 
+    [Dim Income Group].[Income Group Name].Members
+    - {[Dim Income Group].[Income Group Name].[All]}
+
+SET [Rows] AS
+GENERATE(
+    [IncomeGroups],
+    {
+        [Dim Income Group].[Income Group Name].CurrentMember
+    } *
+    {
+        HEAD(
+            TOPCOUNT(
+                [Dim Country].[Country Name].Members - {[Dim Country].[Country Name].[All]},
+                1,
+                ([Measures].[Total Waste Tons], [Dim Income Group].[Income Group Name].CurrentMember)
+            ), 1
+        )
+    }
+)
+
+MEMBER [Measures].[SumTotalByIncomeGroup] AS
+    SUM(
+        [Dim Country].[Country Name].Members - {[Dim Country].[Country Name].[All]},
+        ([Measures].[Total Waste Tons], [Dim Income Group].[Income Group Name].CurrentMember)
+    )
+
+SELECT
+    {
+        [Measures].[SumTotalByIncomeGroup]
+    } ON COLUMNS,
+    [Rows] ON ROWS
+FROM [Food Waste DW];
+
+--Câu 10: Top 3 quốc gia có lượng rác thải cao nhất mỗi năm
+WITH
+SET [Years] AS 
+    [Dim Time].[Year].[Year].Members
+    - {[Dim Time].[Year].[All]}   -- bỏ All Member
+
+SET [Top3Countries] AS
+GENERATE(
+    [Years],
+    TOPCOUNT(
+        NONEMPTY(
+            CROSSJOIN(
+                { [Dim Time].[Year].CurrentMember },
+                [Dim Country].[Country Name].[Country Name].Members
+                    - {[Dim Country].[Country Name].[All]}
+            ),
+            [Measures].[Total Waste Tons]
+        ),
+        3,
+        [Measures].[Total Waste Tons]
+    )
+)
+
+SELECT
+    [Measures].[Total Waste Tons] ON COLUMNS,
+    [Top3CountriesByYear] ON ROWS
+FROM [Food Waste DW];
+
+-- Câu 11: Thiệt hại kinh tế ở các nước châu Âu
+SELECT 
+  [Measures].[Food Economic Loss Million USD] ON COLUMNS,
+  FILTER(
+    [Dim Country].[Country Name].Children,
+    ([Measures].[Food Economic Loss Million USD],
+     [Dim Time].[Year].&[2022],
+     [Dim Region].[Region Name].&[Europe]
+    ) > 0
+  ) ON ROWS
+FROM [Food Waste DW];
+
+-- Câu 12: Tỷ lệ rác thải theo từng loại thực phẩm
+WITH
+MEMBER [Measures].[FoodWastePercent] AS
+    IIF(
+        ( [Measures].[Total Waste Tons], [Dim Food Type].[Food Type Name].[All] ) = 0,
+        NULL,
+        ROUND(
+            (
+                [Measures].[Total Waste Tons]
+                /
+                ( [Measures].[Total Waste Tons], [Dim Food Type].[Food Type Name].[All] )
+            ) * 100
+        , 3)
+    )
+
+SELECT
+    { [Measures].[Total Waste Tons], [Measures].[FoodWastePercent] } ON COLUMNS,
+    [Dim Food Type].[Food Type Name].Children ON ROWS
+FROM [Food Waste DW];
+
+
+--Câu 13: Top 3 khu vực gây rác thải hộ gia đình thấp nhất
+SELECT
+    [Measures].[Total Household Waste Tons] ON COLUMNS,
+    BOTTOMCOUNT(
+        [Dim Region].[Region Name].Children,
+        3,
+        [Measures].[Total Household Waste Tons]
+    ) ON ROWS
+FROM [Food Waste DW];
+
+
+--Câu 14: Top 5 quốc gia rác thải công nghiệp cao nhất
+WITH
+SET [Top5CommercialWasteCountries_v2] AS
+    TOPCOUNT(
+        [Dim Country].[Country Name].Children,
+        5,
+        IIF(
+            [Measures].[Total Waste Tons] = 0,
+            NULL,
+            ([Measures].[Total Commercial Waste Tons] / [Measures].[Total Waste Tons]) * 100
+        )
+    )
+
+SELECT
+    [Measures].[Total Commercial Waste Tons] ON COLUMNS,
+    [Top5CommercialWasteCountries_v2] ON ROWS
+FROM [Food Waste DW];
+
+
+SELECT
+    [Measures].[Total Waste Tons] ON COLUMNS,
+    TOPCOUNT(
+        [Dim Country].[Country Name].Children,
+        5,
+        [Measures].[Total Waste Tons]
+    ) ON ROWS
+FROM [Food Waste DW];
+-- Câu 15: Top 5 quốc gia có tổng rác thải lớn nhất
+SELECT
+    [Measures].[Total Waste Tons] ON COLUMNS,
+    TOPCOUNT(
+        [Dim Country].[Country Name].Children,
+        5,
+        [Measures].[Total Waste Tons]
+    ) ON ROWS
+FROM [Food Waste DW];
+
