@@ -45,7 +45,7 @@ OLAP Analysis
 BI Visualization
 ```
 
-📌 *(Bạn nên thêm một hình architecture nếu có — ví dụ pipeline hoặc system overview)*
+architecture —  pipeline  system overview
 
 ---
 
